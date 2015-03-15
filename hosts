@@ -1,0 +1,4 @@
+[rabbitmq]
+hostname_master rabbitmq_master=true
+hostname_2
+hostname_3

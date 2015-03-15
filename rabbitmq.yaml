@@ -1,0 +1,47 @@
+- name: Rabbitmq server
+  gather_facts: True
+  hosts: rabbitmq
+  user: root
+  vars:
+    - erlang_cookie: RANDOMSTRINGCOOKIE
+  tasks:
+    - name: Install RabbitMQ
+      yum: name={{item}} state=present
+      with_items:
+        - rabbitmq-server
+    - name: Create rabbitmq /sbin symlink
+      file: state=link src=//usr/lib/rabbitmq/bin dest=/usr/lib/rabbitmq/sbin
+    - name: Set erlang cookie
+      template: src=rabbitmq/erlang.cookie dest=/var/lib/rabbitmq/.erlang.cookie owner=rabbitmq group=rabbitmq mode=0400
+      notify:
+        - restart rabbitmq
+    - name: Rabbitmq.config
+      template: src=rabbitmq/rabbitmq.config dest=/etc/rabbitmq/rabbitmq.config
+      notify:
+        - restart rabbitmq
+    - name: Enable plugins
+      rabbitmq_plugin: names=rabbitmq_management state=enabled prefix=/usr/lib/rabbitmq/
+      notify:
+        - restart rabbitmq
+    - name: start rabbitmq
+      service: state=started name=rabbitmq-server enabled=yes
+    - name: Manage Rabbitmq vhosts on master
+      rabbitmq_vhost: name={{item.vhost}} state=present
+      with_items: rabbitmq_vhosts
+      when: rabbitmq_master is defined
+    - name: Manage Rabbitmq users on master
+      rabbitmq_user: name={{item.user}} password={{item.password}} vhost={{item.vhost}} configure_priv=.* read_priv=.* write_priv=.* state=present
+      with_items: rabbitmq_vhosts
+      when: rabbitmq_master is defined
+    # Warning: syntax change between RabbitMQ versions. Default Ansible RabbitMQ module only support recent version of RabbitMQ
+    - name: Set default policy for HA to all queues/exchanges
+      rabbitmq_policy: vhost={{item.vhost}} name=HA-{{item.user}} pattern='.*' tags="ha-mode=all" priority=1
+      with_items: rabbitmq_vhosts
+      when: rabbitmq_master is defined
+    - name: Set hostsnames in /etc/hosts
+      lineinfile: dest=/etc/hosts regexp='.*{{ hostvars[item]['ansible_hostname'] }}$' line="{{ hostvars[item].ansible_default_ipv4.address }}  {{hostvars[item]['ansible_hostname']}}" state=present
+      when: hostvars[item].ansible_default_ipv4.address is defined
+      with_items: groups['rabbitmq']
+  handlers:
+    - name: restart rabbitmq
+      service: state=restarted name=rabbitmq-server enabled=yes
